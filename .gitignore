@@ -1,0 +1,24 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Logs
+*.log
+*.log.old
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Development Tools & Temporary Files
+tmp/
+.serena/
+.gemini/
+GEMINI.md
+
+# Application Data (for local testing)
+local.db
+token.json
+passphrase
