@@ -330,19 +330,4 @@ pub fn delete_passphrase() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn set_offline_mode(offline: bool) -> anyhow::Result<()> {
-    let mut config = load_config();
-    config.general.offline_mode = offline;
-    let path = get_config_dir().join("config.toml");
-    let toml_str = toml::to_string_pretty(&config)?;
 
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        options.mode(0o600);
-    }
-    let mut file = options.open(&path)?;
-    file.write_all(toml_str.as_bytes())?;
-    Ok(())
-}

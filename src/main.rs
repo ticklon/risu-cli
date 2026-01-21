@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{
         self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -2083,6 +2084,11 @@ fn open_browser(url: &str) {
 }
 
 async fn logout(_repo: Repo) -> Result<()> {
+    if config::get_token().is_empty() {
+        println!("Already logged out.");
+        return Ok(());
+    }
+
     // repo.clear_all_data().await?; // Phase 7: Keep local data, only discard keys
     let _ = config::delete_token_data();
     let _ = config::delete_passphrase(); // Delete E2E passphrase too
@@ -2090,104 +2096,7 @@ async fn logout(_repo: Repo) -> Result<()> {
     Ok(())
 }
 
-fn read_passphrase_interactive(prompt: &str) -> Result<String> {
-    print!("{}", prompt);
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input.trim().to_string())
-}
 
-async fn handle_e2e_command(subcmd: &str, repo: Repo) -> Result<()> {
-    let client = APIClient::new();
-    let token = config::get_token();
-    if token.is_empty() {
-        println!("You must be logged in to manage E2E encryption.");
-        return Ok(());
-    }
-
-    match subcmd {
-        "enable" => {
-            println!("Enabling E2E Encryption...");
-            let p1 = read_passphrase_interactive("Enter E2E Passphrase: ")?;
-            let p2 = read_passphrase_interactive("Confirm Passphrase: ")?;
-            if p1 != p2 {
-                println!("Passphrases do not match. Aborting.");
-                return Ok(());
-            }
-            if p1.is_empty() {
-                println!("Passphrase cannot be empty. Aborting.");
-                return Ok(());
-            }
-
-            println!("Contacting server...");
-
-            // 1. Generate Salt locally
-
-            let salt = crypto::generate_salt();
-
-            // 2. Derive key and create Validator
-
-            let key = match crypto::derive_key_async(p1.clone(), salt.clone()).await {
-                Ok(k) => k,
-
-                Err(e) => {
-                    eprintln!("Failed to derive key: {}", e);
-
-                    return Ok(());
-                }
-            };
-
-            let validator = match crypto::encrypt("RISU-VALID", &key) {
-                Ok(v) => v,
-
-                Err(e) => {
-                    eprintln!("Failed to create validator: {}", e);
-
-                    return Ok(());
-                }
-            };
-
-            // 3. Send Salt + Validator atomically
-
-            match client.e2e_enable(Some(&salt), Some(&validator)).await {
-                Ok(_returned_salt) => {
-                    repo.set_salt(&salt).await?;
-
-                    config::save_passphrase(&p1)?;
-
-                    repo.set_notes_encrypted_status(1).await?;
-
-                    println!("E2E Encryption enabled successfully! Run 'risu' to start syncing encrypted notes.");
-                }
-
-                Err(e) => {
-                    eprintln!("Failed to enable E2E: {}", e);
-                }
-            }
-        }
-        "disable" => {
-            println!("Disabling E2E Encryption...");
-            let confirm = read_passphrase_interactive(
-                "Are you sure? This will delete all data on the server. (y/n): ",
-            )?;
-            if confirm.to_lowercase() != "y" {
-                return Ok(());
-            }
-
-            if let Err(e) = client.e2e_disable().await {
-                eprintln!("Failed to disable E2E on server: {}", e);
-            }
-            config::set_offline_mode(true)?;
-            let _ = config::delete_passphrase();
-            repo.set_salt("").await?;
-            repo.set_notes_encrypted_status(0).await?;
-            println!("E2E Encryption disabled.");
-        }
-        _ => println!("Unknown subcommand."),
-    }
-    Ok(())
-}
 
 fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
@@ -2197,6 +2106,93 @@ fn restore_terminal() -> Result<()> {
         DisableMouseCapture,
         DisableBracketedPaste
     )?;
+    Ok(())
+}
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the TUI application (default)
+    Tui,
+    /// Login to Risu Cloud
+    Login,
+    /// Logout from Risu Cloud
+    Logout,
+}
+
+
+
+// ...
+
+async fn handle_cli_login() -> Result<()> {
+    let client = APIClient::new();
+
+    // Check if already logged in
+    let token = config::get_token();
+    if !token.is_empty() {
+        if let Ok(me) = client.get_me().await {
+            if let Ok(email) = config::get_user_email_from_token(&token) {
+                println!("Already logged in as: {}", email);
+                println!("Plan: {} ({})", me.plan, me.subscription_status);
+                return Ok(());
+            }
+        }
+    }
+
+    println!("Starting login process...");
+    match client.start_login_session().await {
+        Ok(session) => {
+            println!("Please open the following URL in your browser to login:");
+            println!("{}", session.url);
+
+            open_browser(&session.url);
+
+            print!("Waiting for authentication... ");
+            io::stdout().flush()?;
+
+            let spinner = ['|', '/', '-', '\\'];
+            let mut spinner_idx = 0;
+
+            // Polling loop
+            loop {
+                match client.poll_login_session(&session.session_id).await {
+                    Ok(res) => {
+                        if res.status == "success" {
+                            config::save_token_data(&res.token, &res.refresh_token)?;
+                            println!("\nLogin successful!");
+                            if let Ok(email) = config::get_user_email_from_token(&res.token) {
+                                println!("Logged in as: {}", email);
+                            }
+                            break;
+                        } else if res.status == "not_found" {
+                            eprintln!("\nLogin session expired. Please try again.");
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // Ignore polling errors (e.g. 404/decoding) while waiting
+                    }
+                }
+
+                // Update spinner
+                print!("\x08{}", spinner[spinner_idx]);
+                io::stdout().flush()?;
+                spinner_idx = (spinner_idx + 1) % spinner.len();
+
+                time::sleep(Duration::from_millis(1000)).await; // Poll every 1s
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to start login session: {}", e);
+        }
+    }
+
     Ok(())
 }
 
@@ -2211,18 +2207,17 @@ async fn main() -> Result<()> {
     logger::init();
     let repo = Repo::new()?;
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        match args[1].as_str() {
-            "logout" => return logout(repo).await,
-            "e2e" => {
-                if args.len() < 3 {
-                    return Ok(());
-                }
-                return handle_e2e_command(&args[2], repo).await;
-            }
+    let args = Args::parse();
 
-            _ => {}
+    match args.command {
+        Some(Commands::Login) => {
+            return handle_cli_login().await;
+        }
+        Some(Commands::Logout) => {
+            return logout(repo).await;
+        }
+        None | Some(Commands::Tui) => {
+            // Proceed to TUI
         }
     }
 

@@ -232,15 +232,6 @@ impl APIClient {
         Ok(res.encryption_salt)
     }
 
-    pub async fn e2e_disable(&self) -> Result<()> {
-        let resp = self
-            .authenticated_request::<()>(Method::POST, "/auth/e2e/disable", None)
-            .await?;
-        if resp.status() != StatusCode::OK {
-            return Err(anyhow!("Disable E2E failed: {}", resp.status()));
-        }
-        Ok(())
-    }
 
     pub async fn reset_remote(&self) -> Result<()> {
         let resp = self

@@ -1,6 +1,6 @@
 [package]
 name = "risu"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A lightweight, CLI-based note-taking application inspired by LazyGit"
 license = "MIT"
@@ -31,3 +31,4 @@ argon2 = "0.5.3"
 chacha20poly1305 = "0.10.1"
 rand = "0.9.2"
 zeroize = "1.8.2"
+clap = { version = "4.5.54", features = ["derive"] }
