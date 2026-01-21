@@ -2096,8 +2096,6 @@ async fn logout(_repo: Repo) -> Result<()> {
     Ok(())
 }
 
-
-
 fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
     execute!(
@@ -2125,8 +2123,6 @@ enum Commands {
     /// Logout from Risu Cloud
     Logout,
 }
-
-
 
 // ...
 

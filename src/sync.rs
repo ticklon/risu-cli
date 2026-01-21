@@ -232,7 +232,6 @@ impl APIClient {
         Ok(res.encryption_salt)
     }
 
-
     pub async fn reset_remote(&self) -> Result<()> {
         let resp = self
             .authenticated_request::<()>(Method::POST, "/sync/reset", None)

@@ -329,5 +329,3 @@ pub fn delete_passphrase() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-
