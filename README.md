@@ -5,6 +5,8 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Build Status](https://github.com/ticklon/risu-cli/actions/workflows/ci.yml/badge.svg)
 
+[English](README.md) | [日本語](README_JP.md)
+
 ## ✨ Features
 
 - **vim-like Navigation:** Navigate and edit notes without leaving the keyboard.
