@@ -1,6 +1,6 @@
 [package]
 name = "risu"
-version = "0.1.1"
+version = "0.1.12"
 edition = "2021"
 description = "A lightweight, CLI-based note-taking application inspired by LazyGit"
 license = "MIT"
