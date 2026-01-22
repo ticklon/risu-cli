@@ -1883,17 +1883,54 @@ impl<'a> Model<'a> {
             account_str, plan_str, sub_status, sub_end, token_source_str, online_mode, e2e_display, error_str
         );
 
-        let dialog_area = centered_rect(60, 40, area);
+        let menu_items_list = self.get_status_menu_items();
+        let menu_items_count = menu_items_list.len() as u16;
+
+        // Dynamic Height Calculation
+        // Info text is about 8-9 lines. Menu is variable.
+        // We need at least: 9 (info) + menu_count + 2 (border) + 1 (spacing)
+        let min_height = 10 + menu_items_count + 2;
+
+        let available_height = area.height;
+        let dialog_height = if available_height < min_height {
+            available_height.saturating_sub(2).max(10)
+        } else {
+            let target = std::cmp::max(available_height * 50 / 100, min_height);
+            std::cmp::min(target, available_height.saturating_sub(2))
+        };
+
+        // Vertical Centering
+        let v_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length((available_height.saturating_sub(dialog_height)) / 2),
+                Constraint::Length(dialog_height),
+                Constraint::Min(0),
+            ])
+            .split(area);
+
+        let dialog_area_v = v_layout[1];
+
+        // Horizontal Centering (60% width)
+        let h_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(20),
+                Constraint::Percentage(60),
+                Constraint::Percentage(20),
+            ])
+            .split(dialog_area_v);
+
+        let dialog_area = h_layout[1];
+
         f.render_widget(ratatui::widgets::Clear, dialog_area);
 
         // Layout splitting: Top for Info, Bottom for Menu
+        let inner_area = block.inner(dialog_area);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(8),
-                Constraint::Length(6), // Menu height
-            ])
-            .split(block.inner(dialog_area));
+            .constraints([Constraint::Min(8), Constraint::Length(menu_items_count)])
+            .split(inner_area);
 
         f.render_widget(block, dialog_area); // Render outer border
 
@@ -1902,8 +1939,7 @@ impl<'a> Model<'a> {
         f.render_widget(p, chunks[0]);
 
         // Menu List
-        let menu_items: Vec<ListItem> = self
-            .get_status_menu_items()
+        let menu_items: Vec<ListItem> = menu_items_list
             .iter()
             .map(|i| ListItem::new(format!("  {}", i)))
             .collect();
