@@ -1845,7 +1845,12 @@ impl<'a> Model<'a> {
             .unwrap_or_else(|| "Unknown".to_string());
 
         let account_str = self.user_email.as_deref().unwrap_or("Not Logged In");
-        let plan_str = self.user_plan.as_deref().unwrap_or("Unknown");
+        let plan_raw = self.user_plan.as_deref().unwrap_or("Unknown");
+        let plan_str = match plan_raw {
+            "dev" => "Early bird",
+            "pro" => "Pro",
+            _ => plan_raw,
+        };
         let sub_status = self.user_subscription_status.as_deref().unwrap_or("None");
         let sub_end = self.user_subscription_end_date.as_deref().unwrap_or("N/A");
 
@@ -1980,7 +1985,7 @@ impl<'a> Model<'a> {
             {
                 items.push("Manage Subscription");
             } else if self.user_plan.as_deref() == Some("free") {
-                items.push("Join Early Access");
+                items.push("Select Plan");
             }
             items.push("Logout");
         } else {
@@ -2135,7 +2140,12 @@ async fn handle_cli_login() -> Result<()> {
         if let Ok(me) = client.get_me().await {
             if let Ok(email) = config::get_user_email_from_token(&token) {
                 println!("Already logged in as: {}", email);
-                println!("Plan: {} ({})", me.plan, me.subscription_status);
+                let display_plan = match me.plan.as_str() {
+                    "dev" => "Early bird",
+                    "pro" => "Pro",
+                    _ => &me.plan,
+                };
+                println!("Plan: {} ({})", display_plan, me.subscription_status);
                 return Ok(());
             }
         }
