@@ -2060,6 +2060,7 @@ impl<'a> Model<'a> {
         self.token_source = None;
         self.user_plan = None;
         self.e2e_status = "Disabled".to_string();
+        self.sync_status = SyncStatus::Offline;
 
         // Clear cached keys
         {
