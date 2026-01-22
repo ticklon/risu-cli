@@ -15,6 +15,14 @@
 
 ## 🚀 Installation
 
+### From Crates.io
+
+The easiest way to install Risu is via [crates.io](https://crates.io/crates/risu):
+
+```bash
+cargo install risu
+```
+
 ### From Source
 
 Ensure you have [Rust](https://www.rust-lang.org/tools/install) installed.
