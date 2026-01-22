@@ -668,7 +668,7 @@ impl<'a> Model<'a> {
                                     let _ = self.start_login().await;
                                     self.active_pane = ActivePane::Login;
                                 }
-                                "Join Early Access" => {
+                                "Select Plan" => {
                                     if let Ok(url) = self.api_client.get_checkout_url().await {
                                         open_browser(&url);
                                     }
