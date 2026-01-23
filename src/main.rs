@@ -2170,7 +2170,7 @@ enum Commands {
 
 // ...
 
-async fn handle_cli_login() -> Result<()> {
+async fn handle_cli_login(repo: Repo) -> Result<()> {
     let client = APIClient::new();
 
     // Check if already logged in
@@ -2185,6 +2185,13 @@ async fn handle_cli_login() -> Result<()> {
                     _ => &me.plan,
                 };
                 println!("Plan: {} ({})", display_plan, me.subscription_status);
+
+                // Ensure salt is synced even if already logged in
+                if let Some(salt) = me.encryption_salt {
+                    repo.set_salt(&salt).await?;
+                    println!("Encryption salt synced.");
+                }
+
                 return Ok(());
             }
         }
@@ -2214,6 +2221,22 @@ async fn handle_cli_login() -> Result<()> {
                             if let Ok(email) = config::get_user_email_from_token(&res.token) {
                                 println!("Logged in as: {}", email);
                             }
+
+                            // Fetch user info to sync salt
+                            match client.get_me().await {
+                                Ok(me) => {
+                                    if let Some(salt) = me.encryption_salt {
+                                        repo.set_salt(&salt).await?;
+                                        println!("Account synced. Encryption enabled.");
+                                    } else {
+                                        println!("Account synced.");
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: Failed to fetch account info: {}", e);
+                                }
+                            }
+
                             break;
                         } else if res.status == "not_found" {
                             eprintln!("\nLogin session expired. Please try again.");
@@ -2256,7 +2279,7 @@ async fn main() -> Result<()> {
 
     match args.command {
         Some(Commands::Login) => {
-            return handle_cli_login().await;
+            return handle_cli_login(repo).await;
         }
         Some(Commands::Logout) => {
             return logout(repo).await;
