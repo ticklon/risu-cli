@@ -2048,6 +2048,9 @@ impl<'a> Model<'a> {
         self.repo.clear_all_data().await?;
         self.refresh_notes(true).await?;
 
+        // Restore account state (re-fetch salt, check plan, etc.)
+        self.perform_account_check().await?;
+
         logger::log("All data cleared.");
         Ok(())
     }
