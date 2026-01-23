@@ -1,8 +1,8 @@
 [package]
 name = "risu"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
-description = "A lightweight, CLI-based note-taking application inspired by LazyGit"
+description = "A lightning-fast, TUI-based note-taking app written in Rust. Features Vim-like bindings, local-first storage, and E2E encrypted sync."
 license = "MIT"
 repository = "https://github.com/ticklon/risu-cli"
 keywords = ["tui", "cli", "markdown", "notes", "productivity"]

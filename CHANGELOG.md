@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-01-24
+
+### Fixed
+- **Sync Critical Bug**: Fixed an issue where initial sync would skip encrypted notes if the key wasn't available yet, permanently advancing the sync cursor and causing data loss in the UI.
+- **Decryption Recovery**: Notes that fail to decrypt (due to key mismatch or corruption) are no longer skipped. They are now saved with a placeholder error message, preventing the sync process from getting stuck.
+- **Cross-Platform Compatibility**: Added auto-detection and recovery for encrypted notes that were incorrectly flagged as plaintext by older Windows clients.
+- **CLI Login**: Fixed a bug where `risu login` via CLI did not sync the encryption salt, causing subsequent TUI sessions to fail decryption.
+- **UI State**: Fixed an issue where the status indicator incorrectly showed "Offline" after clearing all data.
+
+### Added
+- **Reset Command**: Added `risu reset-local` command to forcefully clear the local database and reset the sync state, useful for recovering from sync issues.
+
+### Documentation
+- **Enhanced Description**: Updated README and Cargo.toml to better reflect the project's focus on speed, local-first design, and optional E2E sync.
+- **Prerequisites**: Added Nerd Fonts recommendation for optimal UI experience.
+
 ## [0.1.12] - 2026-01-23
 
 ### Fixed

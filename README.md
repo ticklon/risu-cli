@@ -9,11 +9,17 @@
 
 ## ✨ Features
 
+- **Local-First & Offline by Default:** Risu runs 100% locally upon installation. All data is stored in your local SQLite database (`~/.risu/local.db`), ensuring zero latency and full privacy without any internet connection.
 - **vim-like Navigation:** Navigate and edit notes without leaving the keyboard.
-- **Local-First:** All data is stored locally in SQLite (`~/.risu/local.db`). Works perfectly offline.
+- **Optional Cloud Sync:** Securely sync your notes across devices with our End-to-End (E2E) encrypted service.
+    - **Early Access Offer:** We are currently offering free access to the Pro plan (E2E Sync) for the first 100 users!
 - **E2E Encryption:** Sync uses Argon2id for key derivation and ChaCha20Poly1305 for encryption. The server *never* sees your plain text.
 - **Secure Architecture:** Authentication tokens and passphrases are strictly managed (local file with 600 permissions).
 - **Cross-Platform:** Runs on macOS, Linux, and Windows.
+
+## 📦 Prerequisites
+
+While Risu runs on any standard terminal, we highly recommend using a **[Nerd Font](https://www.nerdfonts.com/)** (e.g., Hack Nerd Font, JetBrainsMono Nerd Font) to correctly display the beautiful icons in the UI. Without it, some icons may not render, though functionality remains unaffected.
 
 ## 🚀 Installation
 
