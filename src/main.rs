@@ -2164,6 +2164,8 @@ enum Commands {
     Login,
     /// Logout from Risu Cloud
     Logout,
+    /// Reset local database (Forces full re-sync)
+    ResetLocal,
 }
 
 // ...
@@ -2258,6 +2260,12 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Logout) => {
             return logout(repo).await;
+        }
+        Some(Commands::ResetLocal) => {
+            repo.clear_all_data().await?;
+            println!("Local database reset successfully.");
+            println!("When you start Risu next time, it will perform a full sync from the server.");
+            return Ok(());
         }
         None | Some(Commands::Tui) => {
             // Proceed to TUI

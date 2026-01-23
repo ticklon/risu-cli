@@ -482,9 +482,13 @@ impl SyncManager {
             let original_count = res.changes.len();
 
             let mut decrypted_changes = Vec::new();
+            let mut skipped_due_to_missing_key = false;
+
             for mut note in res.changes {
+                let key_opt_ref = key_opt.as_ref();
+
                 if note.is_encrypted == 1 {
-                    if let Some(key) = &key_opt {
+                    if let Some(key) = key_opt_ref {
                         match crypto::decrypt(&note.content, key) {
                             Ok(plaintext) => {
                                 note.content = plaintext;
@@ -492,19 +496,58 @@ impl SyncManager {
                                 decrypted_changes.push(note);
                             }
                             Err(e) => {
+                                let err_msg = format!("Failed to decrypt note {}: {}", note.id, e);
+                                crate::logger::log(&err_msg);
+                                // Save as placeholder to prevent sync stuck
+                                note.content = format!("⚠️ Decryption Failed\n\nError: {}\n\n(This note could not be decrypted. It may be corrupted or encrypted with a different key.)", e);
+                                note.is_encrypted = 0;
+                                decrypted_changes.push(note);
+                            }
+                        }
+                    } else {
+                        // Key missing but note is encrypted -> Critical failure for this batch
+                        crate::logger::log(&format!(
+                            "Skipping note {} because encryption key is missing",
+                            note.id
+                        ));
+                        skipped_due_to_missing_key = true;
+                    }
+                } else {
+                    // Handle is_encrypted == 0 (Potential plaintext or mislabeled encrypted data)
+
+                    // Try to decrypt even if flag says 0, just in case (Recovery logic)
+                    let mut recovered = false;
+                    if let Some(key) = key_opt_ref {
+                        // Only try if it looks like base64 and has enough length
+                        if note.content.len() > 24 && !note.content.contains(' ') {
+                            if let Ok(plaintext) = crypto::decrypt(&note.content, key) {
                                 crate::logger::log(&format!(
-                                    "Failed to decrypt note {}: {}",
-                                    note.id, e
+                                    "Recovered mislabeled encrypted note: {}",
+                                    note.id
                                 ));
+                                note.content = plaintext;
+                                note.is_encrypted = 0;
+                                decrypted_changes.push(note.clone());
+                                recovered = true;
                             }
                         }
                     }
-                } else {
-                    crate::logger::log(&format!(
-                        "Ignoring non-encrypted note {} from server (Plaintext sync is deprecated)",
-                        note.id
-                    ));
+
+                    if !recovered {
+                        crate::logger::log(&format!(
+                            "Accepting plaintext note {} (Warning: Plaintext sync is deprecated but allowed for recovery)",
+                            note.id
+                        ));
+                        // Save as-is (Plaintext)
+                        decrypted_changes.push(note);
+                    }
                 }
+            }
+
+            if skipped_due_to_missing_key {
+                return Err(anyhow::anyhow!(
+                    "Cannot sync encrypted notes without decryption key"
+                ));
             }
 
             if !decrypted_changes.is_empty() {
