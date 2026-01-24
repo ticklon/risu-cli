@@ -343,6 +343,16 @@ impl<'a> Model<'a> {
         );
     }
 
+    fn setup_unlock_passphrase_textarea_style(&mut self) {
+        let theme = &self.config.theme;
+        self.passphrase_textarea.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Enter Passphrase to Unlock ")
+                .border_style(Style::default().fg(theme.border_active)),
+        );
+    }
+
     fn setup_confirm_textarea_style(&mut self) {
         let theme = &self.config.theme;
         self.passphrase_confirm_textarea.set_block(
@@ -506,7 +516,7 @@ impl<'a> Model<'a> {
                                     self.active_pane = ActivePane::PassphraseInput;
                                     self.passphrase_textarea = TextArea::default();
                                     self.passphrase_textarea.set_mask_char('•');
-                                    self.setup_passphrase_textarea_style();
+                                    self.setup_unlock_passphrase_textarea_style();
                                 }
                             } else {
                                 // Eligible but no E2E setup -> Go to Setup
@@ -610,6 +620,7 @@ impl<'a> Model<'a> {
                 }
                 KeyCode::Char('L') if self.e2e_status == "Locked" => {
                     self.active_pane = ActivePane::PassphraseInput;
+                    self.setup_unlock_passphrase_textarea_style();
                 }
                 _ => {}
             },
@@ -1258,7 +1269,7 @@ impl<'a> Model<'a> {
                                 self.active_pane = ActivePane::PassphraseInput;
                                 self.passphrase_textarea = TextArea::default();
                                 self.passphrase_textarea.set_mask_char('•');
-                                self.setup_passphrase_textarea_style();
+                                self.setup_unlock_passphrase_textarea_style();
                             }
                         }
                     } else {
