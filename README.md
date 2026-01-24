@@ -2,6 +2,8 @@
 
 **Risu Note** is a local-first, terminal-based note-taking application designed for developers. It features Vim-like keybindings, robust offline capabilities, and optional End-to-End (E2E) encrypted synchronization.
 
+**[🌐 Website](https://risu-note.laiosys.dev/)**
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Build Status](https://github.com/ticklon/risu-cli/actions/workflows/ci.yml/badge.svg)
 

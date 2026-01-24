@@ -2,6 +2,8 @@
 
 **Risu Note** は、開発者のために設計された Local-First なターミナル製ノートアプリです。Vim ライクなキーバインディング、強力なオフライン機能、そしてオプションのエンドツーエンド (E2E) 暗号化同期機能を備えています。
 
+**[🌐 Webサイト](https://risu-note.laiosys.dev/)**
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Build Status](https://github.com/ticklon/risu-cli/actions/workflows/ci.yml/badge.svg)
 
