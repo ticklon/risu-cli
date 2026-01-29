@@ -72,6 +72,7 @@ enum Message {
     Tick,
     PollingTick,
     SubscriptionCheck,
+    AccountCheckResult(Result<sync::AuthMeResponse, String>),
 }
 
 const RISU_LOGO: &str = r###"   RISU NOTE
@@ -1215,88 +1216,74 @@ impl<'a> Model<'a> {
         Ok(false)
     }
 
-    async fn perform_account_check(&mut self) -> Result<()> {
-        if self.config.general.offline_mode || self.user_email.is_none() {
-            return Ok(());
-        }
+    async fn apply_account_info(&mut self, me: sync::AuthMeResponse) -> Result<()> {
+        self.user_plan = Some(me.plan.clone());
+        self.user_subscription_status = Some(me.subscription_status.clone());
+        self.user_subscription_end_date = me.subscription_end_date.clone();
+        let is_eligible = me.plan == "pro" || me.plan == "dev";
+        if is_eligible {
+            if let Some(salt) = me.encryption_salt {
+                self.repo.set_salt(&salt).await?;
 
-        self.is_loading = true;
-        match self.api_client.get_me().await {
-            Ok(me) => {
-                self.user_plan = Some(me.plan.clone());
-                self.user_subscription_status = Some(me.subscription_status.clone());
-                self.user_subscription_end_date = me.subscription_end_date.clone();
-                let is_eligible = me.plan == "pro" || me.plan == "dev";
-                if is_eligible {
-                    if let Some(salt) = me.encryption_salt {
-                        self.repo.set_salt(&salt).await?;
+                let is_unlocked = {
+                    let guard = self.crypto_key.lock().unwrap();
+                    guard.is_some()
+                };
 
-                        let is_unlocked = {
-                            let guard = self.crypto_key.lock().unwrap();
-                            guard.is_some()
-                        };
-
-                        if is_unlocked {
-                            self.e2e_status = "Unlocked".to_string();
-                            crate::logger::log("perform_account_check: E2E already unlocked");
-                            let _ = self.sync_trigger.try_send(());
-                        } else {
-                            self.e2e_status = "Locked".to_string();
-                            if let Ok(Some(pass)) = config::get_passphrase() {
-                                // Background unlock
-                                let repo = self.repo.clone();
-                                let client = APIClient::new();
-                                let key_store = self.crypto_key.clone();
-                                let tx = self.status_tx.clone();
-                                let pass_clone = pass.clone();
-
-                                tokio::spawn(async move {
-                                    let _ = tx.send(SyncStatus::Unlocking).await;
-                                    match unlock_process(repo, client, pass_clone, key_store).await
-                                    {
-                                        Ok(true) => {
-                                            let _ = tx.send(SyncStatus::Unlocked).await;
-                                        }
-                                        Ok(false) => {
-                                            let _ = tx.send(SyncStatus::Error).await;
-                                        }
-                                        Err(_) => {
-                                            let _ = tx.send(SyncStatus::Error).await;
-                                        }
-                                    }
-                                });
-                            } else {
-                                self.active_pane = ActivePane::PassphraseInput;
-                                self.passphrase_textarea = TextArea::default();
-                                self.passphrase_textarea.set_mask_char('•');
-                                self.setup_unlock_passphrase_textarea_style();
-                            }
-                        }
-                    } else {
-                        // Eligible but no salt -> Setup needed
-                        self.e2e_status = "Setup Required".to_string();
-                        self.active_pane = ActivePane::E2ESetup;
-                    }
+                if is_unlocked {
+                    self.e2e_status = "Unlocked".to_string();
+                    crate::logger::log("apply_account_info: E2E already unlocked");
+                    let _ = self.sync_trigger.try_send(());
                 } else {
-                    self.e2e_status = "Disabled".to_string();
-                    if self.repo.get_salt().await.unwrap_or(None).is_some() {
-                        crate::logger::log("perform_account_check: Free plan detected but local salt exists. Cleaning up.");
-                        let _ = self.repo.delete_salt().await;
-                        let _ = config::delete_passphrase();
-                        {
-                            let mut guard = self.crypto_key.lock().unwrap();
-                            *guard = None;
-                        }
+                    self.e2e_status = "Locked".to_string();
+                    if let Ok(Some(pass)) = config::get_passphrase() {
+                        // Background unlock
+                        let repo = self.repo.clone();
+                        let client = APIClient::new();
+                        let key_store = self.crypto_key.clone();
+                        let tx = self.status_tx.clone();
+                        let pass_clone = pass.clone();
+
+                        tokio::spawn(async move {
+                            let _ = tx.send(SyncStatus::Unlocking).await;
+                            match unlock_process(repo, client, pass_clone, key_store).await {
+                                Ok(true) => {
+                                    let _ = tx.send(SyncStatus::Unlocked).await;
+                                }
+                                Ok(false) => {
+                                    let _ = tx.send(SyncStatus::Error).await;
+                                }
+                                Err(_) => {
+                                    let _ = tx.send(SyncStatus::Error).await;
+                                }
+                            }
+                        });
+                    } else {
+                        self.active_pane = ActivePane::PassphraseInput;
+                        self.passphrase_textarea = TextArea::default();
+                        self.passphrase_textarea.set_mask_char('•');
+                        self.setup_unlock_passphrase_textarea_style();
                     }
                 }
+            } else {
+                // Eligible but no salt -> Setup needed
+                self.e2e_status = "Setup Required".to_string();
+                self.active_pane = ActivePane::E2ESetup;
             }
-            Err(e) => {
-                let msg = format!("perform_account_check: Failed to get user info: {}", e);
-                crate::logger::log(&msg);
-                self.last_error = Some(msg);
+        } else {
+            self.e2e_status = "Disabled".to_string();
+            if self.repo.get_salt().await.unwrap_or(None).is_some() {
+                crate::logger::log(
+                    "apply_account_info: Free plan detected but local salt exists. Cleaning up.",
+                );
+                let _ = self.repo.delete_salt().await;
+                let _ = config::delete_passphrase();
+                {
+                    let mut guard = self.crypto_key.lock().unwrap();
+                    *guard = None;
+                }
             }
         }
-        self.is_loading = false;
         Ok(())
     }
 
@@ -1383,18 +1370,28 @@ impl<'a> Model<'a> {
                         let new_plan = me.plan.clone();
                         let current_plan = self.user_plan.clone().unwrap_or("free".to_string());
 
+                        let _ = self.apply_account_info(me).await;
+
                         let is_paid_now = new_plan == "pro" || new_plan == "dev";
                         let was_free = current_plan == "free";
 
                         if was_free && is_paid_now {
                             crate::logger::log("Subscription upgrade detected!");
                             self.polling_subscription = false;
-                            let _ = self.perform_account_check().await;
                         }
-
-                        // Always update local state
-                        self.user_plan = Some(new_plan);
-                        self.user_subscription_status = Some(me.subscription_status);
+                    }
+                }
+            }
+            Message::AccountCheckResult(result) => {
+                self.is_loading = false;
+                match result {
+                    Ok(me) => {
+                        let _ = self.apply_account_info(me).await;
+                    }
+                    Err(e) => {
+                        let msg = format!("AccountCheck: Failed to get user info: {}", e);
+                        crate::logger::log(&msg);
+                        self.last_error = Some(msg);
                     }
                 }
             }
@@ -1407,9 +1404,26 @@ impl<'a> Model<'a> {
         let mut spinner_interval = time::interval(Duration::from_millis(100));
         let mut sub_poll_interval = time::interval(Duration::from_secs(3));
 
-        let _ = self.perform_account_check().await;
-
         let (tx, mut rx) = mpsc::unbounded_channel();
+        let (internal_tx, mut internal_rx) = mpsc::unbounded_channel();
+
+        // Initial Account Check (Background)
+        if !self.config.general.offline_mode && self.user_email.is_some() {
+            self.is_loading = true;
+            let tx_clone = internal_tx.clone();
+            tokio::spawn(async move {
+                let client = APIClient::new();
+                match client.get_me().await {
+                    Ok(me) => {
+                        let _ = tx_clone.send(Message::AccountCheckResult(Ok(me)));
+                    }
+                    Err(e) => {
+                        let _ = tx_clone.send(Message::AccountCheckResult(Err(e.to_string())));
+                    }
+                }
+            });
+        }
+
         let _input_handle = std::thread::spawn(move || {
             while let Ok(evt) = event::read() {
                 if tx.send(evt).is_err() {
@@ -1466,6 +1480,7 @@ impl<'a> Model<'a> {
                         }
                     }
                 }
+                Some(msg) = internal_rx.recv() => messages.push(msg),
                 Some(status) = self.status_rx.recv() => messages.push(Message::SyncStatusUpdate(status)),
                 _ = spinner_interval.tick() => messages.push(Message::Tick),
                 _ = poll_interval.tick(), if self.polling_login => messages.push(Message::PollingTick),
@@ -2060,7 +2075,13 @@ impl<'a> Model<'a> {
         self.refresh_notes(true).await?;
 
         // Restore account state (re-fetch salt, check plan, etc.)
-        self.perform_account_check().await?;
+        if !self.config.general.offline_mode && self.user_email.is_some() {
+            if let Ok(me) = self.api_client.get_me().await {
+                self.apply_account_info(me).await?;
+            } else {
+                logger::log("Failed to refresh account info after clear.");
+            }
+        }
 
         logger::log("All data cleared.");
         Ok(())

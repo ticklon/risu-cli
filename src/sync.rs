@@ -36,6 +36,7 @@ impl SyncStatus {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct APIClient {
     client: Client,
     base_url: String,
@@ -273,7 +274,7 @@ impl APIClient {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct AuthMeResponse {
     #[serde(rename = "id")]
     pub _id: String,
