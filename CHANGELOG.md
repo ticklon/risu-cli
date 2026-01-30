@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-01-31
+
+### Added
+- **Secure Sync Error Handling**: Introduced a safer sync mechanism that skips notes failing decryption instead of overwriting them with placeholders, preventing permanent data corruption. A "Sync Warning" status is now displayed in the UI when items are skipped.
+- **Refactoring**: Improved the internal architecture of the account check logic for better maintainability and performance during app startup.
+
+### Fixed
+- **UI**: Fixed the title of the passphrase input modal to be more context-aware ("Enter Passphrase to Unlock" vs "New Passphrase").
+
+### Documentation
+- **Links**: Added links to the Landing Page in README files.
+
 ## [0.1.13] - 2026-01-24
 
 ### Fixed
