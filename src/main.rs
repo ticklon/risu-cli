@@ -1302,58 +1302,74 @@ impl<'a> Model<'a> {
                 }
             }
             Message::SyncStatusUpdate(status) => {
-                if status == SyncStatus::Syncing {
-                    self.sync_start_time = Some(Instant::now());
-                    self.sync_status = status;
-                    self.pending_sync_end = false;
-                } else if status == SyncStatus::Synced {
-                    let should_update_editor = self.active_pane != ActivePane::Editor;
-                    self.refresh_notes(should_update_editor).await?;
-                    self.pending_sync_end = true;
-                } else if status == SyncStatus::Unlocking {
-                    self.e2e_status = "Unlocking...".to_string();
-                    self.sync_status = status;
-                } else if status == SyncStatus::Unlocked {
-                    self.e2e_status = "Unlocked".to_string();
-                    self.sync_status = SyncStatus::Synced; // Or idle
-                    self.is_loading = false;
-                    self.pending_sync_end = true; // Show synced momentarily
-
-                    // Trigger sync once unlocked
-                    let _ = self.sync_trigger.try_send(());
-
-                    // If we were on PassphraseInput, go to List
-                    if self.active_pane == ActivePane::PassphraseInput {
-                        self.active_pane = ActivePane::List;
-                        self.last_error = None;
+                match status {
+                    SyncStatus::Syncing => {
+                        self.sync_start_time = Some(Instant::now());
+                        self.sync_status = status;
+                        self.pending_sync_end = false;
                     }
-                } else if status == SyncStatus::Error {
-                    self.sync_status = status;
-                    self.is_loading = false;
-
-                    if self.active_pane == ActivePane::PassphraseInput {
-                        // Assume error means invalid passphrase here if we were inputting it
-                        self.passphrase_textarea = TextArea::default();
-                        self.passphrase_textarea.set_mask_char('•');
-                        self.passphrase_textarea.set_block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .title(" Invalid Passphrase! Try Again ")
-                                .border_style(Style::default().fg(self.config.theme.sync_error)),
-                        );
+                    SyncStatus::Synced => {
+                        let should_update_editor = self.active_pane != ActivePane::Editor;
+                        self.refresh_notes(should_update_editor).await?;
+                        self.pending_sync_end = true;
+                        self.sync_status = status;
                     }
-                } else if status == SyncStatus::PaymentRequired {
-                    self.sync_status = status;
-                    self.is_loading = false;
-                    self.e2e_status = "Upgrade Required".to_string();
-                    // Auto-open status dialog to prompt upgrade?
-                    self.active_pane = ActivePane::StatusDialog;
-                    // Pre-select "Upgrade to Pro" if possible (simple hack: set selection index)
-                    // But list items are dynamic. Just opening dialog is good enough.
-                } else {
-                    self.sync_status = status;
-                    self.sync_start_time = None;
-                    self.pending_sync_end = false;
+                    SyncStatus::Unlocking => {
+                        self.e2e_status = "Unlocking...".to_string();
+                        self.sync_status = status;
+                    }
+                    SyncStatus::Unlocked => {
+                        self.e2e_status = "Unlocked".to_string();
+                        self.sync_status = SyncStatus::Synced; // Or idle
+                        self.is_loading = false;
+                        self.pending_sync_end = true; // Show synced momentarily
+
+                        // Trigger sync once unlocked
+                        let _ = self.sync_trigger.try_send(());
+
+                        // If we were on PassphraseInput, go to List
+                        if self.active_pane == ActivePane::PassphraseInput {
+                            self.active_pane = ActivePane::List;
+                            self.last_error = None;
+                        }
+                    }
+                    SyncStatus::Error => {
+                        self.sync_status = status;
+                        self.is_loading = false;
+
+                        if self.active_pane == ActivePane::PassphraseInput {
+                            // Assume error means invalid passphrase here if we were inputting it
+                            self.passphrase_textarea = TextArea::default();
+                            self.passphrase_textarea.set_mask_char('•');
+                            self.passphrase_textarea.set_block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .title(" Invalid Passphrase! Try Again ")
+                                    .border_style(
+                                        Style::default().fg(self.config.theme.sync_error),
+                                    ),
+                            );
+                        }
+                    }
+                    SyncStatus::PaymentRequired => {
+                        self.sync_status = status;
+                        self.is_loading = false;
+                        self.e2e_status = "Upgrade Required".to_string();
+                        // Auto-open status dialog to prompt upgrade?
+                        self.active_pane = ActivePane::StatusDialog;
+                        // Pre-select "Upgrade to Pro" if possible (simple hack: set selection index)
+                        // But list items are dynamic. Just opening dialog is good enough.
+                    }
+                    SyncStatus::Warning(_) => {
+                        self.sync_status = status;
+                        self.is_loading = false;
+                        self.pending_sync_end = false;
+                    }
+                    _ => {
+                        self.sync_status = status;
+                        self.sync_start_time = None;
+                        self.pending_sync_end = false;
+                    }
                 }
             }
             Message::Tick => {
@@ -1731,7 +1747,7 @@ impl<'a> Model<'a> {
         } else if self.config.general.offline_mode {
             theme.sync_offline
         } else {
-            match self.sync_status {
+            match &self.sync_status {
                 SyncStatus::Synced => theme.sync_synced,
                 SyncStatus::Syncing => theme.sync_syncing,
                 SyncStatus::Offline => theme.sync_offline,
@@ -1739,6 +1755,7 @@ impl<'a> Model<'a> {
                 SyncStatus::PaymentRequired => theme.sync_payment_required,
                 SyncStatus::Unlocking => theme.sync_syncing,
                 SyncStatus::Unlocked => theme.sync_synced,
+                SyncStatus::Warning(_) => Color::Yellow,
             }
         };
 
@@ -1746,7 +1763,7 @@ impl<'a> Model<'a> {
             " Saved! ".to_string()
         } else if self.config.general.offline_mode {
             " Offline Mode ".to_string()
-        } else if self.sync_status == SyncStatus::Syncing || self.is_loading {
+        } else if matches!(self.sync_status, SyncStatus::Syncing) || self.is_loading {
             let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
             let s = spinner[self.spinner_index % spinner.len()];
             if self.is_loading {

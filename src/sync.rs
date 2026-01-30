@@ -11,7 +11,7 @@ use crate::config;
 use crate::crypto;
 use crate::db::{Note, Repo};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum SyncStatus {
     Synced,
     Syncing,
@@ -20,6 +20,7 @@ pub enum SyncStatus {
     Unlocking,
     Unlocked,
     PaymentRequired,
+    Warning(String),
 }
 
 impl SyncStatus {
@@ -32,6 +33,7 @@ impl SyncStatus {
             SyncStatus::Unlocking => "Unlocking...",
             SyncStatus::Unlocked => "Unlocked",
             SyncStatus::PaymentRequired => "Upgrade Required",
+            SyncStatus::Warning(msg) => msg,
         }
     }
 }
@@ -313,6 +315,11 @@ pub struct SyncManager {
     crypto_key: Arc<Mutex<Option<Zeroizing<[u8; 32]>>>>,
 }
 
+pub struct PullStats {
+    pub processed: usize,
+    pub skipped: usize,
+}
+
 impl SyncManager {
     pub fn new(
         repo: Repo,
@@ -423,9 +430,16 @@ impl SyncManager {
         let _ = self.status_tx.send(SyncStatus::Syncing).await;
 
         match self.do_sync(&me.plan).await {
-            Ok(_) => {
+            Ok(stats) => {
                 crate::logger::log("SyncManager: Sync finished successfully");
-                let _ = self.status_tx.send(SyncStatus::Synced).await;
+                if stats.skipped > 0 {
+                    let _ = self
+                        .status_tx
+                        .send(SyncStatus::Warning("Sync Warning".to_string()))
+                        .await;
+                } else {
+                    let _ = self.status_tx.send(SyncStatus::Synced).await;
+                }
             }
             Err(e) => {
                 crate::logger::log(&format!("Sync Error: {:?}", e));
@@ -438,13 +452,13 @@ impl SyncManager {
         }
     }
 
-    async fn do_sync(&self, plan: &str) -> Result<()> {
+    async fn do_sync(&self, plan: &str) -> Result<PullStats> {
         // We still attempt pull even if plan is free (server filters it)
         // But push will fail if not pro.
-        self.pull().await.context("Pull failed")?;
+        let stats = self.pull().await.context("Pull failed")?;
 
         match self.push(plan).await {
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(stats),
             Err(e) => {
                 // Check if error is "Payment Required"
                 if e.to_string().contains("Payment Required") {
@@ -455,13 +469,17 @@ impl SyncManager {
         }
     }
 
-    async fn pull(&self) -> Result<()> {
+    async fn pull(&self) -> Result<PullStats> {
         let cursor = self.repo.get_cursor().await?;
+        let mut stats = PullStats {
+            processed: 0,
+            skipped: 0,
+        };
 
         let server_time = self.client.check_sync().await?;
 
         if server_time <= cursor {
-            return Ok(());
+            return Ok(stats);
         }
 
         let mut current_cursor = cursor;
@@ -483,7 +501,6 @@ impl SyncManager {
             let original_count = res.changes.len();
 
             let mut decrypted_changes = Vec::new();
-            let mut skipped_due_to_missing_key = false;
 
             for mut note in res.changes {
                 let key_opt_ref = key_opt.as_ref();
@@ -495,14 +512,13 @@ impl SyncManager {
                                 note.content = plaintext;
                                 note.is_encrypted = 0; // Decrypted for local storage
                                 decrypted_changes.push(note);
+                                stats.processed += 1;
                             }
                             Err(e) => {
                                 let err_msg = format!("Failed to decrypt note {}: {}", note.id, e);
                                 crate::logger::log(&err_msg);
-                                // Save as placeholder to prevent sync stuck
-                                note.content = format!("⚠️ Decryption Failed\n\nError: {}\n\n(This note could not be decrypted. It may be corrupted or encrypted with a different key.)", e);
-                                note.is_encrypted = 0;
-                                decrypted_changes.push(note);
+                                // Skip this note to prevent data corruption
+                                stats.skipped += 1;
                             }
                         }
                     } else {
@@ -511,7 +527,7 @@ impl SyncManager {
                             "Skipping note {} because encryption key is missing",
                             note.id
                         ));
-                        skipped_due_to_missing_key = true;
+                        stats.skipped += 1;
                     }
                 } else {
                     // Handle is_encrypted == 0 (Potential plaintext or mislabeled encrypted data)
@@ -530,6 +546,7 @@ impl SyncManager {
                                 note.is_encrypted = 0;
                                 decrypted_changes.push(note.clone());
                                 recovered = true;
+                                stats.processed += 1;
                             }
                         }
                     }
@@ -541,14 +558,9 @@ impl SyncManager {
                         ));
                         // Save as-is (Plaintext)
                         decrypted_changes.push(note);
+                        stats.processed += 1;
                     }
                 }
-            }
-
-            if skipped_due_to_missing_key {
-                return Err(anyhow::anyhow!(
-                    "Cannot sync encrypted notes without decryption key"
-                ));
             }
 
             if !decrypted_changes.is_empty() {
@@ -556,6 +568,17 @@ impl SyncManager {
                     .pull_upsert_notes(decrypted_changes, res.next_cursor.clone())
                     .await?;
             } else if original_count > 0 {
+                // If all notes were skipped, we still update cursor?
+                // NO. If we update cursor, we lose the chance to retry fetching these notes later.
+                // BUT, if we don't update cursor, we get stuck in a loop fetching the same failing notes.
+                //
+                // Level 2 Strategy: Skip and Move On.
+                // User will see "Warning" and can choose to Reset Local if they want to try clean slate,
+                // or we rely on them fixing it on another device?
+                //
+                // If we DON'T update cursor, the app will keep fetching the same broken note forever on every sync.
+                // So we MUST update cursor even if we skipped everything, to proceed to next changes.
+                // The skipped notes are "lost" to this device until they are updated again on server.
                 self.repo.set_last_synced(&res.next_cursor).await?;
             }
 
@@ -568,7 +591,7 @@ impl SyncManager {
                 break;
             }
         }
-        Ok(())
+        Ok(stats)
     }
 
     async fn push(&self, plan: &str) -> Result<()> {
